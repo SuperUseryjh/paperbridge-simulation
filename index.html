@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>纸桥物理模拟系统（Web 版）</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>纸桥物理模拟系统</h1>
+    <p class="sub">基于有限元模拟的纸桥承载计算</p>
+  </div>
+</header>
+
+<main>
+  <aside class="panel" id="panel">
+    <nav class="tabs" id="tabs" role="tablist">
+      <button type="button" class="tab" data-tab="plan" role="tab">① 方案</button>
+      <button type="button" class="tab" data-tab="section" role="tab">② 截面</button>
+      <button type="button" class="tab" data-tab="load" role="tab">③ 加载</button>
+      <button type="button" class="tab" data-tab="editor" role="tab">④ 编辑器</button>
+    </nav>
+
+    <div class="tabbody">
+
+      <section class="pane" data-pane="plan" role="tabpanel">
+        <label class="row"><span class="name">结构方案</span><select id="structure"></select></label>
+        <label class="row"><span class="name">支承方式</span><select id="support"></select></label>
+        <label class="row"><span class="name">纸张材料</span><select id="material"></select></label>
+        <label class="row"><span class="name">跨长</span>
+          <input type="range" id="span" min="10" max="100" step="1" value="30">
+          <span class="val" id="span-val"></span></label>
+        <label class="row"><span class="name">桥面宽度</span>
+          <input type="range" id="width" min="3" max="30" step="0.5" value="15">
+          <span class="val" id="width-val"></span></label>
+      </section>
+
+      <section class="pane" data-pane="section" role="tabpanel">
+        <label class="row"><span class="name">截面高度 d</span>
+          <input type="range" id="depth" min="2" max="80" step="1" value="40">
+          <span class="val" id="depth-val"></span></label>
+        <label class="row"><span class="name">折叠分格数</span>
+          <input type="range" id="foldPanels" min="1" max="20" step="1" value="6">
+          <span class="val" id="foldPanels-val"></span></label>
+        <label class="row"><span class="name">腹板数量</span><select id="webCount">
+          <option value="1">U形/工形（1块）</option>
+          <option value="2" selected>箱形（2块）</option></select></label>
+        <label class="row"><span class="name">叠合层数</span>
+          <input type="range" id="layers" min="1" max="10" step="1" value="3">
+          <span class="val" id="layers-val"></span></label>
+        <label class="row check"><input type="checkbox" id="glued" checked>
+          <span>层间粘合（不粘则刚度差 n² 倍）</span></label>
+        <label class="row"><span class="name">圆管直径</span>
+          <input type="range" id="diameter" min="8" max="60" step="1" value="30">
+          <span class="val" id="diameter-val"></span></label>
+        <label class="row"><span class="name">节间数 / 分段数</span><select id="panels">
+          <option value="4">4</option><option value="6" selected>6</option>
+          <option value="8">8</option><option value="10">10</option>
+          <option value="12">12</option></select></label>
+        <label class="row"><span class="name">拱矢高 f</span>
+          <input type="range" id="rise" min="1" max="20" step="0.5" value="8">
+          <span class="val" id="rise-val"></span></label>
+        <p class="note">灰掉的参数与当前结构方案无关；改任意一项都会立即重算。</p>
+      </section>
+
+      <section class="pane" data-pane="load" role="tabpanel">
+        <label class="row"><span class="name">加载方式</span><select id="loadType"></select></label>
+        <label class="row"><span class="name">砝码质量</span>
+          <input type="range" id="mass" min="0" max="2000" step="5" value="0">
+          <span class="val" id="mass-val"></span></label>
+        <div class="divider">动画与显示</div>
+        <label class="row"><span class="name">动画帧间隔</span>
+          <input type="range" id="speed" min="20" max="500" step="10" value="120">
+          <span class="val" id="speed-val"></span></label>
+        <label class="row check"><input type="checkbox" id="amplify" checked>
+          <span>放大变形便于观察</span></label>
+      </section>
+
+      <section class="pane" data-pane="editor" role="tabpanel">
+        <p class="notice" id="editorNotice">当前不是自建结构。切到 <b>① 方案 → 自定义结构（自己搭建）</b> 即可在画布上搭建。</p>
+
+        <div class="modes" id="modes"></div>
+
+        <div class="mode-panels" id="modePanels">
+
+          <section class="mpane" data-mpane="node">
+            <p class="mp-title">放节点 / 拖节点</p>
+            <p class="mp-sub"></p>
+            <ol class="mp-steps">
+              <li>在空白处单击 → 放一个新节点</li>
+              <li>按住已有节点拖动 → 移动它，松手后自动重算</li>
+            </ol>
+            <label class="row"><span class="name">网格吸附</span><select id="gridSnap">
+              <option value="0">关闭吸附</option><option value="0.005">0.5 cm</option>
+              <option value="0.01" selected>1 cm</option><option value="0.02">2 cm</option>
+              <option value="0.05">5 cm</option></select></label>
+            <p class="mp-tip">节点的横坐标范围决定跨长；位置摆不平也没关系，网格会把它对齐。</p>
+          </section>
+
+          <section class="mpane" data-mpane="member">
+            <p class="mp-title">连杆件 / 改杆件</p>
+            <p class="mp-sub"></p>
+            <ol class="mp-steps">
+              <li>依次点两个节点 → 连成一根杆件</li>
+              <li>点已有杆件（或双击它）→ 改成下面选的截面与类型</li>
+            </ol>
+            <label class="row"><span class="name">新杆件截面</span><select id="memberSection"></select></label>
+            <label class="row"><span class="name">杆件类型</span><select id="memberKind"></select></label>
+            <p class="mp-tip">画布上<b>实线</b> = 能传弯矩的"梁"，<b>虚线</b> = 只受轴力的"二力杆"。</p>
+          </section>
+
+          <section class="mpane" data-mpane="support">
+            <p class="mp-title">设支座</p>
+            <p class="mp-sub"></p>
+            <ol class="mp-steps">
+              <li>点一个节点 → 支座按 <b>无 → 铰支 → 滚动铰 → 固支</b> 循环切换</li>
+            </ol>
+            <ul class="mp-legend">
+              <li><b>铰支</b>：不能移动、可以转动 —— 竖向 + 水平都约束</li>
+              <li><b>滚动铰</b>：能水平滑动 —— 只约束竖向</li>
+              <li><b>固支</b>：不能移动也不能转动</li>
+            </ul>
+            <p class="mp-tip">至少留一个支座约束水平位移，否则整座桥会"滑走"（求解器会报机构）。</p>
+          </section>
+
+          <section class="mpane" data-mpane="load">
+            <p class="mp-title">设加载点</p>
+            <p class="mp-sub"></p>
+            <ol class="mp-steps">
+              <li>点一个节点 → 在"是加载点 / 不是加载点"之间切换</li>
+            </ol>
+            <p class="mp-tip">砝码只能放在加载点上；「跨中集中力」会自动挑最靠近跨中的那个加载点。</p>
+          </section>
+
+          <section class="mpane" data-mpane="delete">
+            <p class="mp-title">删除</p>
+            <p class="mp-sub"></p>
+            <ol class="mp-steps">
+              <li>点节点 → 删掉它和所有与它相连的杆件</li>
+              <li>点杆件中段 → 只删这一根杆件</li>
+              <li>或把鼠标移到目标上按 <b>Delete</b></li>
+            </ol>
+            <p class="mp-tip warn">删除后编号会重排，删错了点下面「撤销上一步」。</p>
+          </section>
+
+        </div>
+
+        <div class="estats" id="editorStats"></div>
+
+        <div class="divider">示例与文件</div>
+        <label class="row"><span class="name">载入示例</span><select id="demo">
+          <option value="beam">简支平板桥</option>
+          <option value="truss">三角桁架桥</option>
+          <option value="arch">系杆拱桥</option></select></label>
+        <div class="buttons">
+          <button type="button" id="btnUndo">撤销上一步</button>
+          <button type="button" id="btnClear">清空画布</button>
+          <button type="button" id="btnImport">导入 JSON</button>
+          <button type="button" id="btnExport">导出 JSON</button>
+        </div>
+        <p class="note">快捷键：<b>1</b>~<b>5</b> 切模式、<b>Delete</b> 删掉鼠标指向的节点/杆件、<b>Esc</b> 取消待连的杆件。</p>
+        <input type="file" id="fileInput" accept=".json,application/json" hidden>
+      </section>
+
+    </div>
+
+    <div class="actions">
+      <button type="button" id="btnRecompute" class="primary">重新计算</button>
+      <button type="button" id="btnAnimate">开始加载动画</button>
+      <button type="button" id="btnExperiment">逐级加载实验</button>
+      <button type="button" id="btnLimit">求极限承载力</button>
+      <button type="button" id="btnReset">恢复默认参数</button>
+    </div>
+  </aside>
+
+  <section class="stage">
+    <div class="kpis" id="kpis">
+      <div class="kpi" id="kpi-ur">
+        <span class="k-label">最大利用率</span>
+        <span class="k-value" id="kpi-ur-v">—</span>
+        <span class="k-sub" id="kpi-ur-s">控制模式 —</span>
+      </div>
+      <div class="kpi" id="kpi-sf">
+        <span class="k-label">安全系数</span>
+        <span class="k-value" id="kpi-sf-v">—</span>
+        <span class="k-sub" id="kpi-sf-s">= 1 / 最大利用率</span>
+      </div>
+      <div class="kpi" id="kpi-limit">
+        <span class="k-label">极限活载</span>
+        <span class="k-value" id="kpi-limit-v">—</span>
+        <span class="k-sub" id="kpi-limit-s">点「求极限承载力」</span>
+      </div>
+      <div class="kpi" id="kpi-paper">
+        <span class="k-label">用纸 / 自重</span>
+        <span class="k-value" id="kpi-paper-v">—</span>
+        <span class="k-sub" id="kpi-paper-s">—</span>
+      </div>
+    </div>
+
+    <div class="view-wrap"><canvas id="bridge"></canvas></div>
+
+    <div class="charts">
+      <div class="chart-wrap"><canvas id="curve"></canvas></div>
+      <div class="chart-wrap"><canvas id="moment"></canvas></div>
+    </div>
+
+    <div class="readout-wrap">
+      <div class="readout-title">详细读数<span class="caret" id="readoutCaret">▾</span></div>
+      <pre class="readout" id="readout"></pre>
+    </div>
+
+    <div class="status" id="status">就绪</div>
+  </section>
+</main>
+
+<!-- 经典脚本按依赖顺序加载：可在 file:// 下直接打开，无需服务器、无需构建 -->
+<script src="js/materials.js"></script>
+<script src="js/sections.js"></script>
+<script src="js/linalg.js"></script>
+<script src="js/beam.js"></script>
+<script src="js/fem2d.js"></script>
+<script src="js/custom.js"></script>
+<script src="js/structures.js"></script>
+<script src="js/failure.js"></script>
+<script src="js/experiment.js"></script>
+<script src="js/plot.js"></script>
+<script src="js/bridgeview.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
