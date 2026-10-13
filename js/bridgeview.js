@@ -47,7 +47,7 @@
 
   /** 世界 ↔ 屏幕 双向映射（与桌面版 _Mapper 一致） */
   class Mapper {
-    constructor(points, width, height, shake) {
+    constructor(points, width, height, shake, minView) {
       shake = shake || [0, 0];
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       points.forEach(function (p) {
@@ -56,7 +56,17 @@
         if (p[1] < y0) y0 = p[1];
         if (p[1] > y1) y1 = p[1];
       });
-      const minH = 0.18 * (x1 - x0) || 0.02;
+      // 最小视野：空画布 / 只有一个节点 / 全部重合时范围会退化成 0，
+      // 那样点哪儿都换算出同一个坐标（放不下第二个节点），所以兜一个下限。
+      // minView 一般传当前跨长，这样"默认工作区"就是用户打算建的桥那么大。
+      const mvx = Math.max((minView && minView[0]) || 0, 0.02);
+      const mvy = Math.max((minView && minView[1]) || 0, 0.005);
+      if (x1 - x0 < mvx) {
+        const cx = 0.5 * (x0 + x1);
+        x0 = cx - mvx / 2;
+        x1 = cx + mvx / 2;
+      }
+      const minH = Math.max(0.18 * (x1 - x0), mvy);
       if (y1 - y0 < minH) {
         const c = 0.5 * (y0 + y1);
         y0 = c - 0.5 * minH;
@@ -102,6 +112,7 @@
       this.editMode = MODE_NODE;
       this.pendingNode = null;
       this.grid = 0.01;
+      this.defaultSpan = 0.30;       // 空画布时的默认工作区宽度（由 app.js 从跨长同步）
       this.hover = null;
       this.hoverNode = null;         // 鼠标指向的节点（命中测试结果）
       this.hoverMember = null;       // 鼠标指向的杆件
@@ -155,22 +166,33 @@
 
     mapper() {
       if (this.frozen) return this.frozen;
-      const pts = this.worldPoints();
       const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
-      if (!pts.length || w < 60 || h < 60) return null;
-      return new Mapper(pts, w, h, this.shake);
+      if (w < 60 || h < 60) return null;
+      const mvx = Math.max(this.defaultSpan || 0.30, 0.05);   // 默认工作区 ≈ 一跨长
+      let pts = this.worldPoints();
+      // 空画布也要有一套坐标系：否则清空之后连第一个节点都放不上去
+      if (!pts.length) {
+        if (!this.editor) return null;
+        pts = [[0, 0], [mvx, 0]];
+      }
+      return new Mapper(pts, w, h, this.shake, [mvx, 0.18 * mvx]);
     }
 
-    // ---- 鼠标交互 ----
+    // ---- 鼠标 / 触屏交互（统一走 pointer 事件，手机上单指拖动也能用）----
     bindEvents() {
       const self = this;
       const pos = function (ev) {
         const r = self.canvas.getBoundingClientRect();
         return [ev.clientX - r.left, ev.clientY - r.top];
       };
+      const primary = function (ev) {
+        // 多指触摸时只认主手指（第二根手指不参与绘编辑）
+        return ev.pointerType !== 'touch' || ev.isPrimary;
+      };
 
-      this.canvas.addEventListener('mousedown', function (ev) {
-        if (ev.button !== 0) return;
+      this.canvas.addEventListener('pointerdown', function (ev) {
+        if (ev.button !== 0 || !primary(ev)) return;
+        try { self.canvas.setPointerCapture(ev.pointerId); } catch (err) { /* 忽略 */ }
         const mapper = self.mapper();
         if (!mapper) return;
         const p = pos(ev);
@@ -203,7 +225,8 @@
         // 非编辑态：点击也不做别的
       });
 
-      this.canvas.addEventListener('mousemove', function (ev) {
+      this.canvas.addEventListener('pointermove', function (ev) {
+        if (!primary(ev)) return;
         if (!self.editor) return;
         const mapper = self.mapper();
         if (!mapper) return;
@@ -238,7 +261,7 @@
         if (member !== null) self.onMemberDoubleClick(member);
       });
 
-      this.canvas.addEventListener('mouseup', function (ev) {
+      this.canvas.addEventListener('pointerup', function (ev) {
         if (ev.button !== 0) return;
         if (self.dragNode !== null) {
           const node = self.dragNode;
@@ -249,7 +272,7 @@
         }
       });
 
-      this.canvas.addEventListener('mouseleave', function () {
+      this.canvas.addEventListener('pointerleave', function () {
         self.clearHover();
         self.draw();
       });
@@ -295,7 +318,7 @@
       if (!mapper) {
         ctx.fillStyle = C.axis;
         ctx.textAlign = 'center';
-        ctx.fillText(this.editor ? '在画布上点击放置第一个节点' : '暂无结构', w / 2, h / 2);
+        ctx.fillText('暂无结构', w / 2, h / 2);
         return;
       }
 
@@ -305,6 +328,14 @@
       else if (this.editor) this.drawEditorGeometry(ctx, mapper);
       if (this.editor) this.drawEditorOverlay(ctx, mapper);
       this.drawBanner(ctx);
+
+      // 空画布：网格照常画，给一句提示告诉用户怎么开始
+      if (this.editor && !this.editor.nodes.length) {
+        ctx.fillStyle = C.axis;
+        ctx.font = '13px ' + UI_FONT;
+        ctx.textAlign = 'center';
+        ctx.fillText('在画布上点击放置第一个节点', w / 2, h / 2);
+      }
     }
 
     drawGrid(ctx, mapper) {

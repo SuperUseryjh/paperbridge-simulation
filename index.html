@@ -161,7 +161,7 @@
           <button type="button" id="btnImport">导入 JSON</button>
           <button type="button" id="btnExport">导出 JSON</button>
         </div>
-        <p class="note">快捷键：<b>1</b>~<b>5</b> 切模式、<b>Delete</b> 删掉鼠标指向的节点/杆件、<b>Esc</b> 取消待连的杆件。</p>
+        <p class="note" id="editorNote">快捷键：<b>1</b>~<b>5</b> 切模式、<b>Delete</b> 删掉鼠标指向的节点/杆件、<b>Esc</b> 取消待连的杆件。</p>
         <input type="file" id="fileInput" accept=".json,application/json" hidden>
       </section>
 
@@ -200,7 +200,27 @@
       </div>
     </div>
 
-    <div class="view-wrap"><canvas id="bridge"></canvas></div>
+    <div class="view-wrap" id="viewWrap">
+      <canvas id="bridge"></canvas>
+      <canvas id="bridge3d" class="hidden"></canvas>
+      <div class="view-switch" id="viewSwitch" role="tablist">
+        <button type="button" class="vtab active" data-view="2d" role="tab">2D 画布</button>
+        <button type="button" class="vtab" data-view="3d" role="tab">3D 预览</button>
+        <label class="vtoggle" id="twinToggleWrap"
+          title="物理内核是平面模型（只有一片桁架）。打开后按桥面宽度把这片刻镜像成两片、中间用桥面拉通 —— 真实纸桥就是这么搭的；关掉只看模型本身那一平面。">
+          <input type="checkbox" id="twinToggle" checked><span>双侧示意</span>
+        </label>
+      </div>
+      <div class="view3d-hud" id="view3dHud">
+        <div class="hud-legend">
+          <span><i style="background:#2e7d32"></i>安全 &lt;50%</span>
+          <span><i style="background:#f9a825"></i>注意 50~80%</span>
+          <span><i style="background:#ef6c00"></i>危险 80~100%</span>
+          <span><i style="background:#c62828"></i>失效 ≥100%</span>
+        </div>
+        <div class="hud-help" id="view3dHelp">左键拖动旋转 · 滚轮缩放 · Shift+左键 / 右键 平移 · 双击复位</div>
+      </div>
+    </div>
 
     <div class="charts">
       <div class="chart-wrap"><canvas id="curve"></canvas></div>
@@ -228,6 +248,9 @@
 <script src="js/experiment.js"></script>
 <script src="js/plot.js"></script>
 <script src="js/bridgeview.js"></script>
+<!-- three.js 官方 UMD 构建（r149，MIT），放在本地，离线双击也能用 -->
+<script src="vendor/three.min.js"></script>
+<script src="js/view3d.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

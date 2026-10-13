@@ -31,7 +31,8 @@
   ];
 
   // ---- 状态 ----
-  let view, curveChart, momentChart;
+  let view, view3d, curveChart, momentChart;
+  let viewMode = '2d';
   let editor = null;
   const undoStack = [];
   let limitResult = null;
@@ -60,12 +61,14 @@
   function init() {
     fillSelects();
     view = new PB.BridgeView($('bridge'));
+    view3d = PB.BridgeView3D ? new PB.BridgeView3D($('bridge3d')) : null;
     curveChart = new PB.ChartView($('curve'), '载荷–挠度曲线', '载荷 (N)', '跨中挠度 (mm)');
     momentChart = new PB.ChartView($('moment'), '桥面弯矩图', '沿跨位置 (cm)', '弯矩 (N·m)');
     buildModeButtons();
     bindTabs();
     bindReadoutToggle();
     bindKeyboard();
+    bindViewSwitch();
     bindControls();
     bindEditorCallbacks();
     bindCanvasResize();
@@ -73,6 +76,15 @@
     applyControlStates();
     syncView();
     recompute();
+    // 触屏设备换成手指版本的操作说明
+    if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
+      $('view3dHelp').textContent = '单指拖动旋转 · 双指缩放 / 平移 · 双击复位';
+      $('editorNote').innerHTML =
+        '触屏：点「节点」模式下点空白处放节点、按住节点拖动可移动；' +
+        '「杆件」模式依次点两个节点连线；<b>双击杆件</b>套用所选截面。';
+    }
+    // 只读句柄：给自动化检查（浏览器里跑断言）用，不参与界面逻辑
+    PB.debug = { view: view, view3d: view3d, get editor() { return editor; } };
   }
 
   function fillSelects() {
@@ -192,6 +204,10 @@
         view.amplify = $('amplify').checked;
         view.draw();
       }
+      if (view3d && view3d.analysis) {
+        view3d.amplify = $('amplify').checked;
+        view3d.build();
+      }
     });
     $('memberSection').addEventListener('change', editorOptionChanged);
     $('memberKind').addEventListener('change', editorOptionChanged);
@@ -298,32 +314,90 @@
       afterEdit('节点 ' + node + ' 移到（x=' + (p[0] * 1e2).toFixed(1) + ' cm，y=' +
         (p[1] * 1e2).toFixed(1) + ' cm）');
     };
+
+    // 3D 视图共用同一套回调：同一份 editor 数据、同一套编辑动作，只是鼠标来自另一块画布
+    if (view3d) {
+      ['onEmptyClick', 'onNodeClick', 'onMemberClick', 'onMemberDoubleClick',
+        'onNodeMove', 'onNodeDrop'].forEach(function (k) { view3d[k] = view[k]; });
+    }
   }
 
   function bindCanvasResize() {
-    const fit = function () {
-      [$('bridge'), $('curve'), $('moment')].forEach(function (cv) {
-        const dpr = window.devicePixelRatio || 1;
-        const w = Math.max(1, Math.round(cv.clientWidth * dpr));
-        const h = Math.max(1, Math.round(cv.clientHeight * dpr));
-        if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
-      });
-      redraw();
-    };
     if (window.ResizeObserver) {
-      const ro = new ResizeObserver(fit);
+      const ro = new ResizeObserver(fitCanvases);
       ro.observe($('bridge'));
       ro.observe($('curve'));
       ro.observe($('moment'));
+      ro.observe($('bridge3d'));
     }
-    window.addEventListener('resize', fit);
-    fit();
+    window.addEventListener('resize', fitCanvases);
+    fitCanvases();
+  }
+
+  /** 按 devicePixelRatio 给三块 2D canvas 设位图尺寸（3D 由 renderer 自己管） */
+  function fitCanvases() {
+    [$('bridge'), $('curve'), $('moment')].forEach(function (cv) {
+      const dpr = window.devicePixelRatio || 1;
+      const w = Math.max(1, Math.round(cv.clientWidth * dpr));
+      const h = Math.max(1, Math.round(cv.clientHeight * dpr));
+      if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    });
+    if (view3d) view3d.resize();
+    redraw();
   }
 
   function redraw() {
     if (view) view.draw();
     if (curveChart) curveChart.draw();
     if (momentChart) momentChart.draw();
+    if (view3d) view3d.requestRender();
+  }
+
+  /** 同时刷新 2D 与 3D 两个视图（参数完全一致） */
+  function showAnalysis(a, opts) {
+    view.showAnalysis(a, opts);
+    if (view3d) view3d.showAnalysis(a, opts);
+  }
+
+  // ------------------------------------------------------------------------
+  // 2D / 3D 视图切换
+  // ------------------------------------------------------------------------
+  function bindViewSwitch() {
+    const supported = !!view3d && view3d.ok;
+    Array.prototype.forEach.call($('viewSwitch').querySelectorAll('.vtab'), function (b) {
+      if (b.dataset.view === '3d' && !supported) {
+        b.disabled = true;
+        b.title = (view3d && view3d.reason) || PB.BridgeView3DReason || '3D 不可用';
+      }
+      b.addEventListener('click', function () {
+        if (!b.disabled) setViewMode(b.dataset.view);
+      });
+    });
+    // 双侧示意：把平面模型按桥宽镜像成两片（真实纸桥的搭法）
+    const twin = $('twinToggle');
+    if (view3d) view3d.twin = twin.checked;
+    twin.addEventListener('change', function () {
+      if (!view3d) return;
+      view3d.twin = twin.checked;
+      view3d.build();
+      setStatus(twin.checked
+        ? '3D：已按桥面宽度把平面模型镜像成两片（示意真实纸桥的搭法）'
+        : '3D：只显示模型本身那一平面');
+    });
+    setViewMode('2d');
+  }
+
+  function setViewMode(mode) {
+    viewMode = (mode === '3d' && view3d && view3d.ok) ? '3d' : '2d';
+    const is3d = viewMode === '3d';
+    $('viewWrap').classList.toggle('view-3d', is3d);
+    $('bridge').classList.toggle('hidden', is3d);
+    $('bridge3d').classList.toggle('hidden', !is3d);
+    Array.prototype.forEach.call($('viewSwitch').querySelectorAll('.vtab'), function (b) {
+      b.classList.toggle('active', b.dataset.view === viewMode);
+    });
+    if (view3d) view3d.setVisible(is3d);
+    fitCanvases();
   }
 
   // ------------------------------------------------------------------------
@@ -422,8 +496,16 @@
   }
 
   function syncView() {
-    view.setEditorState(isCustom() ? editor : null, view.editMode, view.pendingNode,
-      parseFloat($('gridSnap').value));
+    const grid = parseFloat($('gridSnap').value);
+    const defSpan = parseFloat($('span').value) / 100.0;
+    view.defaultSpan = defSpan;              // 空画布时的默认工作区宽度
+    view.setEditorState(isCustom() ? editor : null, view.editMode, view.pendingNode, grid);
+    if (view3d) {
+      view3d.deckWidth = parseFloat($('width').value) / 100.0;
+      view3d.defaultSpan = defSpan;
+      view3d.amplify = $('amplify').checked;
+      view3d.setEditorState(isCustom() ? editor : null, view.editMode, view.pendingNode, grid);
+    }
     highlightMode();
   }
 
@@ -483,7 +565,8 @@
     wrap.querySelector('.readout-title').addEventListener('click', function () {
       wrap.classList.toggle('folded');
     });
-    if (window.innerHeight < 640) wrap.classList.add('folded');   // 矮屏先收起来
+    // 矮屏或手机先收起来，别把桥挤出屏幕
+    if (window.innerHeight < 640 || window.innerWidth < 720) wrap.classList.add('folded');
   }
 
   function bindKeyboard() {
@@ -591,7 +674,7 @@
     } catch (err) {
       setStatus('参数不合法：' + err.message, 'error');
       renderKpi(null);
-      if (isCustom()) { view.showAnalysis(null, { banner: '' }); }
+      if (isCustom()) { showAnalysis(null, { banner: '' }); }
       return;
     }
     limitResult = null;
@@ -601,11 +684,11 @@
     } catch (err) {
       setStatus('求解失败：' + err.message, 'error');
       renderKpi(null);
-      if (isCustom()) view.showAnalysis(null, { banner: '' });
+      if (isCustom()) showAnalysis(null, { banner: '' });
       return;
     }
     const collapsed = a.report.max_utilization >= 1.0;
-    view.showAnalysis(a, {
+    showAnalysis(a, {
       amplify: $('amplify').checked,
       collapsed: collapsed,
       banner: collapsed ? '× 桥塌了！' : '',
@@ -718,7 +801,7 @@
     } catch (err) { setStatus('计算失败：' + err.message, 'error'); return; }
     limitResult = lim;
     if (!lim.self_weight_safe) {
-      view.showAnalysis(Fail.analyze(design.copyWith({ live_load: 0.0 })),
+      showAnalysis(Fail.analyze(design.copyWith({ live_load: 0.0 })),
         { collapsed: true, banner: '× 仅自重就已超限' });
       setStatus('仅自重就已超限：先加强截面，再谈加载。', 'error');
       return;
@@ -747,7 +830,7 @@
     const banner = collapsed
       ? '× 桥塌了！控制失效模式：' + (a.report.governing ? a.report.governing.mode : '—')
       : '加载中… 砝码 ' + (load / G * 1e3).toFixed(0) + ' g（利用率 ' + (ur * 100).toFixed(0) + '%）';
-    view.showAnalysis(a, {
+    showAnalysis(a, {
       amplify: $('amplify').checked, collapsed: collapsed, banner: banner,
     });
     renderReadout(a);
@@ -811,7 +894,7 @@
     limitResult = lim;
     const a = Fail.analyze(design.copyWith({ live_load: lim.limit_load }));
     const mode = lim.report.governing ? lim.report.governing.mode : '';
-    view.showAnalysis(a, {
+    showAnalysis(a, {
       amplify: $('amplify').checked,
       collapsed: lim.report.max_utilization >= 1.0,
       banner: '极限状态：' + mode,

@@ -553,6 +553,84 @@ button.primary:hover:not(:disabled) { background: var(--primary-dark); border-co
   border-radius: var(--radius);
 }
 
+/* 2D / 3D 共用一个容器，两块 canvas 叠着放，切换时只显示一块 */
+.view-wrap > canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* 触屏上拖画布不能滚动页面：2D 要拖节点、3D 要转视角 */
+  touch-action: none;
+}
+
+.view-wrap > canvas.hidden { display: none; }
+
+.view-switch {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(255, 255, 255, .93);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+
+.vtab {
+  padding: 3px 11px;
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.vtab:hover:not(:disabled) { background: var(--panel-soft); }
+.vtab.active { background: var(--primary); color: #fff; font-weight: 700; }
+.vtab:disabled { color: #b4c2c9; cursor: not-allowed; }
+
+/* 双侧示意开关：只在 3D 模式下出现 */
+.vtoggle {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px 3px 7px;
+  font-size: 11.5px;
+  color: var(--text);
+  border-left: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+
+.view-wrap.view-3d .vtoggle { display: inline-flex; }
+.vtoggle input { width: 13px; height: 13px; margin: 0; accent-color: var(--primary); }
+
+/* 3D 模式的叠加提示（图例 + 操作说明） */
+.view3d-hud { display: none; }
+
+.view-wrap.view-3d .view3d-hud {
+  display: block;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.hud-legend { display: flex; gap: 12px; flex-wrap: wrap; }
+.hud-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.hud-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.hud-help { margin-top: 2px; }
+
 .charts {
   flex: 0 0 auto;
   display: flex;
@@ -642,24 +720,48 @@ button.primary:hover:not(:disabled) { background: var(--primary-dark); border-co
   .kpi .k-value { font-size: 15px; }
 }
 
-/* ---------- 窄屏：纵向堆叠 ---------- */
+/* ---------- 窄屏：纵向堆叠，桥体放最前，控件紧跟其后 ---------- */
 @media (max-width: 1000px) {
   body { overflow: auto; height: auto; min-height: 100vh; }
   main { flex-direction: column; }
-  .panel { width: auto; flex: 0 0 auto; }
-  .tabbody { overflow: visible; }
-  .stage { overflow: visible; }
-  .view-wrap { height: 300px; flex: 0 0 300px; }
-  .charts { flex-direction: column; height: auto; }
-  .chart-wrap { height: 180px; flex: 0 0 180px; }
-  .readout { max-height: 220px; }
+  /* display:contents 让舞台里的几块变成 main 的直接子项，好按手机上最顺手的顺序排 */
+  .stage { display: contents; }
+  .kpis { order: 1; }
+  .view-wrap { order: 2; height: min(44vh, 320px); flex: 0 0 auto; }
+  .panel { order: 3; width: auto; flex: 0 0 auto; }
+  .charts { order: 4; flex-direction: column; height: auto; }
+  .chart-wrap { height: 160px; flex: 0 0 160px; }
+  .readout-wrap { order: 5; }
+  .readout { max-height: 200px; }
+  .status { order: 6; }
+  .tabs { position: sticky; top: 0; z-index: 4; }
 }
 
 @media (max-width: 620px) {
-  header { flex-wrap: wrap; }
+  header { flex-wrap: wrap; padding: 8px 12px; }
   .badges { width: 100%; }
   .kpis { grid-template-columns: 1fr 1fr; }
   .modes { grid-template-columns: repeat(3, 1fr); }
   .row .name { flex-basis: 76px; }
-  main { padding: 6px; }
+  main { padding: 6px; gap: 6px; }
+  .view-switch { top: 6px; right: 6px; }
+  .hud-legend { gap: 8px; }
+}
+
+/* ---------- 手指操作：把可点区域放大到 finger-friendly ---------- */
+@media (pointer: coarse) {
+  :root { --row-h: 34px; }
+  html, body { -webkit-tap-highlight-color: transparent; }
+  .tab { padding: 10px 4px; font-size: 13px; }
+  .row { margin: 7px 0; font-size: 13px; }
+  .row .name { flex-basis: 84px; }
+  .row .val { flex-basis: 58px; font-size: 12.5px; }
+  input[type="checkbox"] { width: 17px; height: 17px; }
+  .modes button { padding: 9px 0; font-size: 12.5px; }
+  .buttons button, .actions button { padding: 11px 6px; font-size: 13px; }
+  .vtab { padding: 6px 12px; }
+  .vtoggle { padding: 6px 10px 6px 8px; }
+  .vtoggle input { width: 15px; height: 15px; }
+  .readout-title { padding: 8px 10px; }
+  .estats, .hint, .mp-tip, .note { font-size: 12px; }
 }

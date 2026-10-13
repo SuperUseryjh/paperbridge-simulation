@@ -1,4 +1,4 @@
-﻿/**
+﻿﻿/**
  * 纸桥截面库（Python 版 paperbridge/sections.py 的 JS 移植）。
  *
  * 纸的致命弱点是厚度极小：单层纸 I = b·t³/12。真实纸桥必须靠
