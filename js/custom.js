@@ -17,7 +17,13 @@
 
   const MEMBER_FRAME = 'frame';
   const MEMBER_TRUSS = 'truss';
-  const MEMBER_KIND_LABELS = { frame: '梁（传弯矩）', truss: '二力杆（仅轴力）' };
+  // 构件类型名 —— 直接带上"构件角色"叫法（桥面 / 弦杆 / 拱圈 / 腹杆 / 吊杆），
+  // 与画布图例、评定文字用同一套词，避免"绘制那边叫梁、结果那边叫弦杆"。
+  // 角色由几何自动推断（见 structures.js 的 buildCustom）。
+  const MEMBER_KIND_LABELS = {
+    frame: '梁 — 桥面 / 弦杆 / 拱圈（传弯矩）',
+    truss: '二力杆 — 腹杆 / 吊杆（仅轴力）',
+  };
   const MEMBER_KINDS = [MEMBER_FRAME, MEMBER_TRUSS];
 
   const SECTION_KINDS = ['solid', 'laminate', 'tube', 'folded'];

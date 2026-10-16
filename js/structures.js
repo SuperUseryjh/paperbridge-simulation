@@ -346,6 +346,27 @@
     cs.loadNodes.forEach(function (n) { loadSet[n] = true; });
     const roles = {}, deckElements = [];
 
+    // 自建结构没有内置方案那样写死的构件角色，这里按几何自动推断，
+    // 好让画布上的粗细、评定文字里的叫法与内置方案完全一致：
+    //   两端都是加载点 → 桥面；
+    //   只要结构里有"拱"（存在升到桥面以上、明显倾斜的梁式杆件），
+    //   那高处那些梁式杆件就是拱圈，连到高处的二力杆就是吊杆；
+    //   否则高处的梁式杆件是弦杆、二力杆是腹杆（桁架情形）。
+    // 只影响命名与画法，不影响力学模型（是否传弯矩仍由 梁/二力杆 决定）。
+    const ys = cs.nodes.map(function (p) { return p[1]; });
+    const deckY = ys.length ? Math.min.apply(null, ys) : 0.0;
+    const topY = ys.length ? Math.max.apply(null, ys) : 0.0;
+    const height = Math.max(topY - deckY, 1e-9);
+    const aboveDeck = function (m) {          // 升到桥面以上
+      return Math.max(cs.nodes[m.i][1], cs.nodes[m.j][1]) > deckY + 0.15 * height;
+    };
+    let hasRing = false;
+    cs.members.forEach(function (m) {
+      if (m.kind !== Custom.MEMBER_FRAME || !aboveDeck(m)) return;
+      const dy = Math.abs(cs.nodes[m.i][1] - cs.nodes[m.j][1]);
+      if (dy > 0.15 * height) hasRing = true;   // 有一根又高又斜的梁 → 这是拱
+    });
+
     cs.members.forEach(function (m, k) {
       let sec = sections[m.section];
       if (!sec) {
@@ -354,7 +375,14 @@
       }
       const isDeck = !!(loadSet[m.i] && loadSet[m.j]);
       const kind = (m.kind === Custom.MEMBER_TRUSS) ? TRUSS : FRAME;
-      const label = isDeck ? ROLE_DECK : (kind === TRUSS ? ROLE_WEB : ROLE_CHORD);
+      let label;
+      if (isDeck) {
+        label = ROLE_DECK;
+      } else if (kind === TRUSS) {
+        label = hasRing ? ROLE_HANGER : ROLE_WEB;
+      } else {
+        label = (hasRing && aboveDeck(m)) ? ROLE_ARCH : ROLE_CHORD;
+      }
       const e = model.addElement(m.i, m.j, sec, kind, label);
       roles[e] = label;
       if (isDeck) deckElements.push(e);

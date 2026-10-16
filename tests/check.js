@@ -24,7 +24,16 @@ const { Materials, Sections, Beam, Custom, Structures, Failure, Experiment } = g
 const FIELD_TOL = 1e-8;      // 与 Python 侧 _baseline.py 同一判据
 const ref = await Bun.file(new URL("./ref.json", import.meta.url)).json();
 
-let stats = { values: 0, exact: 0, worst: 0, worstAt: "", diffs: [], ties: [] };
+let stats = { values: 0, exact: 0, worst: 0, worstAt: "", diffs: [], ties: [], renames: [] };
+
+/**
+ * 构件角色名。**同一分组内改名是物理等价的** —— 失效判定里只有
+ * "侧向无支撑长度取整跨还是取自身长度"用到角色，而这条规则把角色分成
+ * {桥面, 弦杆, 拱圈}（取整跨）与 {腹杆, 吊杆}（取自身长度）两组。
+ * Web 版把自建结构的角色名统一成了内置方案的叫法（拱圈/吊杆），Python 侧
+ * 稍后同步，所以这里把"同组改名"单列出来，跨组改名仍然算失败。
+ */
+const ROLE_GROUP = { 桥面: 0, 弦杆: 0, 拱圈: 0, 腹杆: 1, 吊杆: 1 };
 
 function maxAbs(obj) {
   let best = 0;
@@ -62,7 +71,14 @@ function compare(actual, expected, path, scale) {
     return;
   }
   if (typeof expected === "string" || typeof expected === "boolean") {
-    if (actual !== expected) stats.diffs.push(`${path}: JS=${actual}  PY=${expected}`);
+    if (actual !== expected) {
+      const ga = ROLE_GROUP[actual], gb = ROLE_GROUP[expected];
+      if (ga !== undefined && ga === gb) {          // 同组改角色名：力学判定一致
+        stats.renames.push(`${path}: JS=${actual}  PY=${expected}`);
+        return;
+      }
+      stats.diffs.push(`${path}: JS=${actual}  PY=${expected}`);
+    }
     return;
   }
   if (expected === null || expected === undefined) {
@@ -230,6 +246,12 @@ if (stats.worstAt) console.log(`最大偏差处：${stats.worstAt}`);
 if (stats.ties.length) {
   console.log(`\n注：${stats.ties.length} 处为符号相反的 1 ulp 平局（绝对值完全相同，物理等价）：`);
   stats.ties.forEach((t) => console.log("   " + t));
+}
+if (stats.renames.length) {
+  console.log(`\n注：${stats.renames.length} 处只是构件角色的**叫法**不同（同一分组，力学判定完全一致）：`);
+  console.log("    Web 版已把自建结构的角色名与内置方案统一（拱圈 / 吊杆），Python 侧待同步。");
+  stats.renames.slice(0, 8).forEach((t) => console.log("   " + t));
+  if (stats.renames.length > 8) console.log(`   …另有 ${stats.renames.length - 8} 处同类`);
 }
 if (stats.diffs.length) {
   console.log(`\n不一致 ${stats.diffs.length} 处（最多显示 25 条）：`);

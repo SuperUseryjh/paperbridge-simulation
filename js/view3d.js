@@ -437,10 +437,12 @@
         const color = MODE.utilizationColor(ur);
         // 桥面那一条拉通成整宽（连接两片），其余杆件在两侧各画一片
         const zlist = (this.twoSided && !deckLevel) ? zs : [0];
+        const round = el.kind === 'truss';        // 二力杆画圆杆，和梁式构件一眼分得开
         zlist.forEach(function (z) {
           const mesh = self.addBar(new THREE.Vector3(p1.x, p1.y, z),
             new THREE.Vector3(p2.x, p2.y, z), {
               sectionKey: sec.key, h: size.h, b: size.b, radius: size.r, color: color,
+              round: round,
             });
           if (!mesh) return;
           mesh.userData.element = i;
@@ -494,6 +496,7 @@
             new THREE.Vector3(p2.x, p2.y, z), {
               h: size.h, b: size.b, radius: size.r,
               sectionKey: m.section,
+              round: m.kind === Custom.MEMBER_TRUSS,   // 二力杆画圆杆
               color: Custom.SECTION_COLORS[m.section] || C.steel,
             });
           if (mesh) {
@@ -612,10 +615,13 @@
       const dir = new THREE.Vector3().subVectors(p2, p1);
       const len = dir.length();
       if (!(len > 1e-9)) return null;
-      const circle = opts.sectionKey === 'tube';
+      // 圆管与"二力杆"都画成圆柱（二力杆细一点），方杆留给梁式构件
+      const circle = opts.round || opts.sectionKey === 'tube';
       let geo;
       if (circle) {
-        const r = Math.max(opts.radius || 0.01, 0.0015);
+        const r = opts.round
+          ? Math.max(Math.min(opts.h, opts.b) * 0.42, 0.0015)
+          : Math.max(opts.radius || 0.01, 0.0015);
         geo = new THREE.CylinderGeometry(r, r, len, 12, 1, true);
       } else {
         geo = new THREE.BoxGeometry(len, Math.max(opts.h, 0.0012), Math.max(opts.b, 0.002));

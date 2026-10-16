@@ -109,7 +109,9 @@
             </ol>
             <label class="row"><span class="name">新杆件截面</span><select id="memberSection"></select></label>
             <label class="row"><span class="name">杆件类型</span><select id="memberKind"></select></label>
-            <p class="mp-tip">画布上<b>实线</b> = 能传弯矩的"梁"，<b>虚线</b> = 只受轴力的"二力杆"。</p>
+            <p class="mp-tip">画布上<b>实线</b> = 桥面 / 弦杆 / 拱圈（传弯矩的梁），<b>虚线</b> = 腹杆 / 吊杆（仅轴力的二力杆）。</p>
+            <p class="mp-tip">角色不用手选，按几何自动判定：两端都是加载点的算<b>桥面</b>；又高又斜的梁算<b>拱圈</b>；
+              结构里一旦有拱圈，连到高处的二力杆就算<b>吊杆</b>。3D 里梁画<b>方杆</b>、二力杆画<b>圆杆</b>。</p>
           </section>
 
           <section class="mpane" data-mpane="support">
@@ -219,6 +221,7 @@
           <span><i style="background:#c62828"></i>失效 ≥100%</span>
         </div>
         <div class="hud-help" id="view3dHelp">左键拖动旋转 · 滚轮缩放 · Shift+左键 / 右键 平移 · 双击复位</div>
+        <div class="hud-help">方杆 = 桥面 / 弦杆 / 拱圈（传弯矩）　圆杆 = 腹杆 / 吊杆（二力杆）</div>
       </div>
     </div>
 

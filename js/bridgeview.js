@@ -431,9 +431,13 @@
           screen.push(mapper.toScreen(ux + amp * (pts[k][0] - ux),
             uy + amp * (pts[k][1] - uy)));
         }
-        const label = model.elements[i].label || '';
-        const main = (label === 'deck' || label === 'top-chord' || label === 'bottom-chord'
-          || label.indexOf('arch') === 0);
+        const roles = model.meta.roles || {};
+        const role = roles[i] || '';
+        // 主构件（桥面 / 上下弦 / 拱圈）画粗一点，腹杆与吊杆这类细杆画细。
+        // 这里必须按 role 判断，不能拿 label 字符串去比 —— 自建结构的 label 是
+        // chord / web，字符串比对认不出来，结果自建拱桥的拱圈会被画得跟吊杆一样细，
+        // "主梁 + 细吊杆"的对比就没了。
+        const main = (role === 'deck' || role === 'chord' || role === 'arch');
         const ur = report.utilizationOf(i);
         ctx.strokeStyle = utilizationColor(ur);
         ctx.lineWidth = main ? 3.0 : 2.0;
@@ -577,7 +581,7 @@
         ly += 15;
       });
       ctx.fillStyle = C.axis;
-      ctx.fillText('（实线=传弯矩的梁，虚线=仅轴力的二力杆）', 14, ly + 4);
+      ctx.fillText('实线 = 桥面 / 弦杆 / 拱圈（传弯矩），虚线 = 腹杆 / 吊杆（仅轴力）', 14, ly + 4);
     }
 
     /** 编辑器叠加层：节点、编号、加载点、支座、橡皮筋、鼠标落点 */
