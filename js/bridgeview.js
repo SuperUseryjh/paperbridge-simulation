@@ -78,11 +78,32 @@
       x1 += 0.05 * (x1 - x0);
       const mx = 0.06 * width, my = 0.08 * height;
       const s = Math.min((width - 2 * mx) / (x1 - x0), (height - 2 * my) / (y1 - y0));
+      this.width = width; this.height = height;
       this.x0 = x0; this.x1 = x1; this.y0 = y0; this.y1 = y1;
       this.scale = s;
       this.ox = mx + (width - 2 * mx - s * (x1 - x0)) / 2;
       this.oy = my + (height - 2 * my - s * (y1 - y0)) / 2;
       this.dx = shake[0]; this.dy = shake[1];
+    }
+
+    /**
+     * 叠上用户自己的缩放与平移（画布是无限平面，视野不再被结构范围框住）。
+     * 以画布中心为基准缩放，再整体平移；默认 zoom=1 / pan=0 时就是自动适应。
+     */
+    applyView(zoom, panX, panY) {
+      if (!(zoom > 0)) zoom = 1;
+      const cx = 0.5 * this.width, cy = 0.5 * this.height;
+      this.scale *= zoom;
+      this.ox = cx + (this.ox - cx) * zoom + panX;
+      this.oy = cy + (this.oy - cy) * zoom + panY;
+    }
+
+    /** 画布可见范围对应的世界坐标 [x 最小, x 最大, y 最小, y 最大] */
+    visibleWorld() {
+      const a = this.fromScreen(0, 0);
+      const b = this.fromScreen(this.width, this.height);
+      return [Math.min(a[0], b[0]), Math.max(a[0], b[0]),
+              Math.min(a[1], b[1]), Math.max(a[1], b[1])];
     }
 
     toScreen(x, y) {
@@ -113,6 +134,14 @@
       this.pendingNode = null;
       this.grid = 0.01;
       this.defaultSpan = 0.30;       // 空画布时的默认工作区宽度（由 app.js 从跨长同步）
+      // 视野：自动适应之上再叠用户的缩放/平移（画布是无限平面）
+      this.viewZoom = 1;
+      this.viewPanX = 0;
+      this.viewPanY = 0;
+      this.touch = false;            // 触屏设备（提示文案不同，由 app.js 同步）
+      this._pan = null;
+      this._panning = false;
+      this._pointers = new Map();    // 触屏双指缩放用
       this.hover = null;
       this.hoverNode = null;         // 鼠标指向的节点（命中测试结果）
       this.hoverMember = null;       // 鼠标指向的杆件
@@ -175,7 +204,92 @@
         if (!this.editor) return null;
         pts = [[0, 0], [mvx, 0]];
       }
-      return new Mapper(pts, w, h, this.shake, [mvx, 0.18 * mvx]);
+      const m = new Mapper(pts, w, h, this.shake, [mvx, 0.18 * mvx]);
+      m.applyView(this.viewZoom, this.viewPanX, this.viewPanY);
+      return m;
+    }
+
+    /** 回到默认视野（自动适应结构 / 空画布时回到默认平面） */
+    resetView() {
+      this.viewZoom = 1;
+      this.viewPanX = 0;
+      this.viewPanY = 0;
+      this.draw();
+    }
+
+    /** 这次按下要不要平移画布（而不是编辑） */
+    _shouldPan(ev) {
+      if (ev.button === 1 || ev.button === 2) return true;   // 中键 / 右键
+      if (ev.button === 0 && ev.shiftKey) return true;       // Shift + 左键
+      if (ev.button === 0 && !this.editor) return true;      // 只看结果时左键拖动
+      return false;
+    }
+
+    /** 执行一次编辑动作（鼠标按下即触发；触屏则在抬手确认后触发） */
+    _applyAction(mode, node, member, wx, wy) {
+      if (mode === MODE_NODE) {
+        if (node === null && this.onEmptyClick) {
+          const s = this.snap(wx, wy);
+          this.onEmptyClick(s[0], s[1]);
+        }
+      } else if (mode === MODE_MEMBER || mode === MODE_DELETE) {
+        if (node !== null && this.onNodeClick) this.onNodeClick(node);
+        else if (member !== null && this.onMemberClick) this.onMemberClick(member);
+      } else if (node !== null && this.onNodeClick) {
+        this.onNodeClick(node);                              // 支座 / 加载点
+      }
+    }
+
+    /** 双指落下：进入手势（放弃这一下可能已开始的编辑） */
+    _beginGesture() {
+      const pts = Array.from(this._pointers.values());
+      this._tap = null;
+      this._pan = null;
+      this._panning = false;
+      if (this.dragNode !== null) {
+        const node = this.dragNode;
+        this.dragNode = null;
+        this.frozen = null;
+        if (this.onNodeDrop) this.onNodeDrop(node);
+      }
+      this._gesture = {
+        dist: Math.hypot(pts[0][0] - pts[1][0], pts[0][1] - pts[1][1]) || 1,
+        cx: 0.5 * (pts[0][0] + pts[1][0]),
+        cy: 0.5 * (pts[0][1] + pts[1][1]),
+      };
+    }
+
+    /** 双指移动：中心点位移 → 平移，两指间距变化 → 以中心为锚缩放 */
+    _updateGesture() {
+      const g = this._gesture;
+      if (!g) return;
+      const pts = Array.from(this._pointers.values());
+      if (pts.length < 2) return;
+      const dist = Math.hypot(pts[0][0] - pts[1][0], pts[0][1] - pts[1][1]) || 1;
+      const cx = 0.5 * (pts[0][0] + pts[1][0]);
+      const cy = 0.5 * (pts[0][1] + pts[1][1]);
+      this.viewPanX += cx - g.cx;
+      this.viewPanY += cy - g.cy;
+      g.cx = cx; g.cy = cy;
+      const factor = dist / g.dist;
+      g.dist = dist;
+      this.zoomAt(cx, cy, factor);
+    }
+
+    /** 以画布上某点为锚缩放（该点下的世界坐标保持不动） */
+    zoomAt(px, py, factor) {
+      if (this.frozen) return;               // 正在拖节点：视图锁住了，别动
+      const before = this.mapper();
+      if (!before) return;
+      const anchor = before.fromScreen(px, py);
+      this.viewZoom = Math.min(Math.max(this.viewZoom * factor, 0.05), 60);
+      const after = this.mapper();
+      if (!after) return;
+      // 把锚点处的世界坐标挪回光标下：ox 变 δ 会让 fromScreen 变 -δ/scale（y 相反）
+      const now = after.fromScreen(px, py);
+      this.viewPanX += (now[0] - anchor[0]) * after.scale;
+      this.viewPanY -= (now[1] - anchor[1]) * after.scale;
+      this.draw();
     }
 
     // ---- 鼠标 / 触屏交互（统一走 pointer 事件，手机上单指拖动也能用）----
@@ -190,42 +304,82 @@
         return ev.pointerType !== 'touch' || ev.isPrimary;
       };
 
+      // 滚轮 / 触控板双指：以光标为锚缩放（画布是无限平面）
+      this.canvas.addEventListener('wheel', function (ev) {
+        ev.preventDefault();
+        const p = pos(ev);
+        self.zoomAt(p[0], p[1], ev.deltaY < 0 ? 1.12 : 1 / 1.12);
+      }, { passive: false });
+
+      // 右键用来平移画布，别弹系统菜单
+      this.canvas.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+
       this.canvas.addEventListener('pointerdown', function (ev) {
+        // 触屏：先登记手指，第二根落下就进入双指手势
+        if (ev.pointerType === 'touch') {
+          self._pointers.set(ev.pointerId, pos(ev));
+          if (self._pointers.size === 2) { self._beginGesture(); return; }
+          if (self._pointers.size > 2) return;
+        }
+        // 中键 / 右键 / Shift+左键 / 只看结果时的左键：拖动平移
+        if (self._shouldPan(ev)) {
+          try { self.canvas.setPointerCapture(ev.pointerId); } catch (err) { /* 忽略 */ }
+          self._pan = pos(ev);
+          self._panning = true;
+          self.canvas.style.cursor = 'grabbing';
+          ev.preventDefault();
+          return;
+        }
         if (ev.button !== 0 || !primary(ev)) return;
         try { self.canvas.setPointerCapture(ev.pointerId); } catch (err) { /* 忽略 */ }
         const mapper = self.mapper();
         if (!mapper) return;
+        if (!self.editor) return;
         const p = pos(ev);
         const w = mapper.fromScreen(p[0], p[1]);
         const wx = w[0], wy = w[1];
-        if (self.editor) {
-          const tol = mapper.pixelTolerance() * 1.6;
-          const node = self.editor.nodeAt(wx, wy, tol);
-          const member = self.editor.memberAt(wx, wy, tol);
-          const mode = self.editMode;
-          if (mode === MODE_NODE) {
-            if (node !== null) {
-              self.dragNode = node;
-              self.frozen = mapper;          // 冻结视图，拖动时坐标不跟着变
-            } else if (self.onEmptyClick) {
-              const s = self.snap(wx, wy);
-              self.onEmptyClick(s[0], s[1]);
-            }
-          } else if (mode === MODE_MEMBER) {
-            if (node !== null && self.onNodeClick) self.onNodeClick(node);
-            else if (member !== null && self.onMemberClick) self.onMemberClick(member);
-          } else if (mode === MODE_DELETE) {
-            if (node !== null && self.onNodeClick) self.onNodeClick(node);
-            else if (member !== null && self.onMemberClick) self.onMemberClick(member);
-          } else if (node !== null && self.onNodeClick) {
-            self.onNodeClick(node);          // 支座 / 加载点
+        const tol = mapper.pixelTolerance() * 1.6;
+        const node = self.editor.nodeAt(wx, wy, tol);
+        const member = self.editor.memberAt(wx, wy, tol);
+        const mode = self.editMode;
+        if (ev.pointerType === 'touch') {
+          // 触屏：按住节点直接拖，其余动作推迟到抬手判定 ——
+          // 免得"想双指缩放"时第一根手指先在空白处点出一个节点
+          if (mode === MODE_NODE && node !== null) {
+            self.dragNode = node;
+            self.frozen = mapper;          // 冻结视图，拖动时坐标不跟着变
+          } else {
+            self._tap = { node: node, member: member, wx: wx, wy: wy,
+                          sx: p[0], sy: p[1], mode: mode };
           }
           return;
         }
-        // 非编辑态：点击也不做别的
+        self._applyAction(mode, node, member, wx, wy);
       });
 
       this.canvas.addEventListener('pointermove', function (ev) {
+        if (ev.pointerType === 'touch') {
+          if (self._pointers.has(ev.pointerId)) self._pointers.set(ev.pointerId, pos(ev));
+          if (self._gesture) { self._updateGesture(); return; }
+          // 单指在空白处拖过阈值：改判成平移
+          if (self._tap) {
+            const q = pos(ev);
+            if (Math.hypot(q[0] - self._tap.sx, q[1] - self._tap.sy) > 10) {
+              self._tap = null;
+              self._pan = q;
+              self._panning = true;
+              self.canvas.style.cursor = 'grabbing';
+            }
+          }
+        }
+        if (self._panning) {
+          const q = pos(ev);
+          self.viewPanX += q[0] - self._pan[0];
+          self.viewPanY += q[1] - self._pan[1];
+          self._pan = q;
+          self.draw();
+          return;
+        }
         if (!primary(ev)) return;
         if (!self.editor) return;
         const mapper = self.mapper();
@@ -261,7 +415,24 @@
         if (member !== null) self.onMemberDoubleClick(member);
       });
 
-      this.canvas.addEventListener('pointerup', function (ev) {
+      const finishPointer = function (ev) {
+        if (ev.pointerType === 'touch') {
+          self._pointers.delete(ev.pointerId);
+          if (self._pointers.size < 2) self._gesture = null;
+        }
+        if (self._panning) {
+          self._panning = false;
+          self._pan = null;
+          self.updateCursor();
+          return;
+        }
+        // 触屏轻点：抬手时才真正执行编辑动作
+        if (self._tap) {
+          const t = self._tap;
+          self._tap = null;
+          self._applyAction(t.mode, t.node, t.member, t.wx, t.wy);
+          return;
+        }
         if (ev.button !== 0) return;
         if (self.dragNode !== null) {
           const node = self.dragNode;
@@ -270,6 +441,18 @@
           if (self.onNodeDrop) self.onNodeDrop(node);
           self.draw();
         }
+      };
+      this.canvas.addEventListener('pointerup', finishPointer);
+      this.canvas.addEventListener('pointercancel', function (ev) {
+        if (ev.pointerType === 'touch') self._pointers.delete(ev.pointerId);
+        if (self._pointers.size < 2) self._gesture = null;
+        self._tap = null;
+        self.dragNode = null;
+        self.frozen = null;
+        self._panning = false;
+        self._pan = null;
+        self.updateCursor();
+        self.draw();
       });
 
       this.canvas.addEventListener('pointerleave', function () {
@@ -287,7 +470,8 @@
 
     /** 光标形状跟着编辑模式变，鼠标到画布上就知道该干什么 */
     updateCursor() {
-      if (!this.editor) { this.canvas.style.cursor = 'default'; return; }
+      if (this._panning) { this.canvas.style.cursor = 'grabbing'; return; }
+      if (!this.editor) { this.canvas.style.cursor = 'grab'; return; }
       const cursors = {};
       cursors[MODE_NODE] = 'crosshair';
       cursors[MODE_MEMBER] = 'crosshair';
@@ -336,34 +520,42 @@
         ctx.textAlign = 'center';
         ctx.fillText('在画布上点击放置第一个节点', w / 2, h / 2);
       }
+
+      // 右下角：视野操作提示
+      ctx.fillStyle = C.axis;
+      ctx.font = '10px ' + UI_FONT;
+      ctx.textAlign = 'right';
+      ctx.fillText(this.touch
+        ? '双指缩放 / 平移 · 复位见右上「复位视野」'
+        : '滚轮缩放 · Shift / 右键 / 中键拖动平移 · 按 0 复位', w - 8, h - 7);
+      ctx.textAlign = 'left';
     }
 
     drawGrid(ctx, mapper) {
       if (!this.editor || !(this.grid > 0)) return;
-      if (this.grid * mapper.scale < 7) return;
+      if (this.grid * mapper.scale < 7) return;       // 太密就不画
+      // 网格铺满整个可见范围（画布是无限平面，不再只画结构那一块）
+      const vis = mapper.visibleWorld();
+      const xa = vis[0], xb = vis[1], ya = vis[2], yb = vis[3];
+      if ((xb - xa) / this.grid > 400 || (yb - ya) / this.grid > 400) return;
       ctx.strokeStyle = C.grid;
       ctx.lineWidth = 1;
-      const xStart = Math.ceil(mapper.x0 / this.grid) * this.grid;
-      for (let x = xStart; x <= mapper.x1; x += this.grid) {
-        const a = mapper.toScreen(x, mapper.y0), b = mapper.toScreen(x, mapper.y1);
+      const xStart = Math.ceil(xa / this.grid) * this.grid;
+      for (let x = xStart; x <= xb; x += this.grid) {
+        const a = mapper.toScreen(x, ya), b = mapper.toScreen(x, yb);
         ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
       }
-      const yStart = Math.ceil(mapper.y0 / this.grid) * this.grid;
-      for (let y = yStart; y <= mapper.y1; y += this.grid) {
-        const a = mapper.toScreen(mapper.x0, y), b = mapper.toScreen(mapper.x1, y);
+      const yStart = Math.ceil(ya / this.grid) * this.grid;
+      for (let y = yStart; y <= yb; y += this.grid) {
+        const a = mapper.toScreen(xa, y), b = mapper.toScreen(xb, y);
         ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
       }
     }
 
     /** 地面：支座所在高度画一条基准线 + 斜线阴影 */
     drawGround(ctx, mapper) {
-      let gy = null, minX = Infinity, maxX = -Infinity;
-      const pts = this.worldPoints();
-      if (!pts.length) return;
-      pts.forEach(function (p) {
-        if (p[0] < minX) minX = p[0];
-        if (p[0] > maxX) maxX = p[0];
-      });
+      let gy = null;
+      if (!this.worldPoints().length) return;
       const supports = this.analysis ? this.analysis.model.supports : [];
       if (this.editor) {
         const ys = Object.keys(this.editor.supports).map((k) => this.editor.nodes[k][1]);
@@ -373,16 +565,15 @@
         gy = Math.max.apply(null, ys);
       }
       if (gy === null) return;
-      const span = maxX - minX;
-      const a = mapper.toScreen(minX - 0.03 * span, gy);
-      const b = mapper.toScreen(maxX + 0.03 * span, gy);
+      // 地面横铺整个可见范围（无限平面：走到哪儿地面跟到哪儿）
+      const c0 = mapper.toScreen(0, gy)[1];
       ctx.strokeStyle = C.steel;
       ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-20, c0); ctx.lineTo(this.canvas.clientWidth + 20, c0); ctx.stroke();
       ctx.strokeStyle = '#b0bec5';
       ctx.lineWidth = 1;
-      for (let x = a[0]; x <= b[0]; x += 9) {
-        ctx.beginPath(); ctx.moveTo(x, a[1]); ctx.lineTo(x - 7, a[1] + 9); ctx.stroke();
+      for (let x = -20; x <= this.canvas.clientWidth + 20; x += 9) {
+        ctx.beginPath(); ctx.moveTo(x, c0); ctx.lineTo(x - 7, c0 + 9); ctx.stroke();
       }
     }
 

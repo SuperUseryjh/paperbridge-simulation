@@ -78,6 +78,7 @@
     recompute();
     // 触屏设备换成手指版本的操作说明
     if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
+      view.touch = true;                    // 2D 画布右下角提示换成双指版本
       $('view3dHelp').textContent = '单指拖动旋转 · 双指缩放 / 平移 · 双击复位';
       $('editorNote').innerHTML =
         '触屏：点「节点」模式下点空白处放节点、按住节点拖动可移动；' +
@@ -197,6 +198,7 @@
     $('structure').addEventListener('change', function () {
       applyControlStates();
       if (isCustom()) setTab('editor');     // 切到自建结构就顺手打开编辑器
+      view.resetView();                     // 换了结构，视野回到默认
       recompute();
     });
     $('amplify').addEventListener('change', function () {
@@ -373,6 +375,11 @@
         if (!b.disabled) setViewMode(b.dataset.view);
       });
     });
+    // 复位视野：回到自动适应（画布是无限平面，缩平移后一键回默认）
+    $('resetViewBtn').addEventListener('click', function () {
+      view.resetView();
+      setStatus('已复位视野');
+    });
     // 双侧示意：把平面模型按桥宽镜像成两片（真实纸桥的搭法）
     const twin = $('twinToggle');
     if (view3d) view3d.twin = twin.checked;
@@ -391,6 +398,7 @@
     viewMode = (mode === '3d' && view3d && view3d.ok) ? '3d' : '2d';
     const is3d = viewMode === '3d';
     $('viewWrap').classList.toggle('view-3d', is3d);
+    $('viewWrap').classList.toggle('view-2d', !is3d);
     $('bridge').classList.toggle('hidden', is3d);
     $('bridge3d').classList.toggle('hidden', !is3d);
     Array.prototype.forEach.call($('viewSwitch').querySelectorAll('.vtab'), function (b) {
@@ -573,6 +581,14 @@
     document.addEventListener('keydown', function (ev) {
       const tag = (ev.target && ev.target.tagName) || '';
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      // 视野快捷键：任何模式下都能用（避开 Ctrl/⌘ 组合，别抢浏览器快捷键）
+      if (!ev.ctrlKey && !ev.metaKey && !ev.altKey &&
+          (ev.key === '0' || ev.key === 'f' || ev.key === 'F')) {
+        view.resetView();
+        setStatus('已复位视野');
+        ev.preventDefault();
+        return;
+      }
       if (!isCustom() || !editor) return;
       const modes = C.EDIT_MODES;
       if (ev.key >= '1' && ev.key <= '9') {
@@ -937,6 +953,7 @@
     $('memberKind').value = 'frame';
     updateSliderLabels();
     applyControlStates();
+    view.resetView();
     recompute();
     setStatus('已恢复默认参数', 'ok');
   }
@@ -980,6 +997,7 @@
     snapshot();
     if (!editor) editor = new Custom.CustomStructure();
     editor.clear();
+    view.resetView();                      // 回到了默认平面
     afterEdit('画布已清空：用「节点」模式点空白处开始搭建');
   }
 
@@ -988,6 +1006,7 @@
     if (!demo) return;
     if (isCustom()) snapshot();
     editor = demo.build();
+    view.resetView();
     if (isCustom()) afterEdit('已载入示例：' + demo.label);
     else syncView();
   }
@@ -1015,6 +1034,7 @@
         const cs = Custom.CustomStructure.fromJSON(String(reader.result));
         snapshot();
         editor = cs;
+        view.resetView();
         afterEdit('已导入 ' + file.name + '（' + cs.nodeCount() + ' 节点 / ' +
           cs.memberCount() + ' 杆件）');
       } catch (err) {

@@ -594,6 +594,23 @@ button.primary:hover:not(:disabled) { background: var(--primary-dark); border-co
 .vtab.active { background: var(--primary); color: #fff; font-weight: 700; }
 .vtab:disabled { color: #b4c2c9; cursor: not-allowed; }
 
+/* 复位视野：只在 2D 模式下出现（画布是无限平面，需要一键回到默认视野） */
+.vbtn {
+  display: none;
+  align-items: center;
+  padding: 3px 11px;
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.view-wrap.view-2d .vbtn { display: inline-flex; }
+.vbtn:hover { background: var(--panel-soft); }
+
 /* 双侧示意开关：只在 3D 模式下出现 */
 .vtoggle {
   display: none;
