@@ -71,6 +71,12 @@
         <label class="row"><span class="name">砝码质量</span>
           <input type="range" id="mass" min="0" max="2000" step="5" value="0">
           <span class="val" id="mass-val"></span></label>
+        <div class="divider">极限承载力</div>
+        <label class="row"><span class="name">搜索上限</span>
+          <input type="number" id="limitUpper" min="1" max="100000" step="10" value="200">
+          <span class="unit">N</span></label>
+        <p class="note">求极限承载力与加载实验的二分上界，默认 200 N（约 20 kg 砝码）。
+          如果结果正好停在 200 N，但是未出现损坏提示，就把它调大重算。</p>
         <div class="divider">动画与显示</div>
         <label class="row"><span class="name">动画帧间隔</span>
           <input type="range" id="speed" min="20" max="500" step="10" value="120">

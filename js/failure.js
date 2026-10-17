@@ -109,12 +109,14 @@
 
   /** 极限承载力搜索结果 */
   class LimitLoadResult {
-    constructor(design, limitLoad, report, selfWeightSafe, solves) {
+    constructor(design, limitLoad, report, selfWeightSafe, solves, capped) {
       this.design = design;
       this.limit_load = limitLoad;
       this.report = report;
       this.self_weight_safe = selfWeightSafe;
       this.solves = solves || 0;
+      // true 表示搜索到上界时桥还没坏 —— limit_load 只是上界，不是真实极限
+      this.capped = !!capped;
     }
 
     limitMass() { return this.limit_load / G; }
@@ -122,6 +124,10 @@
     summary() {
       if (!this.self_weight_safe) {
         return '仅自重就已超限：这张纸桥撑不住自己的重量。';
+      }
+      if (this.capped) {
+        return '搜索到上限 ' + this.limit_load.toFixed(3) +
+          ' N 时仍未失效：真实极限更高，请调高「搜索上限」后重算。';
       }
       const mode = (this.report && this.report.governing) ? this.report.governing.mode : '—';
       return '极限活载 ≈ ' + this.limit_load.toFixed(3) + ' N（约 ' +
@@ -277,7 +283,8 @@
     solves += 1;
     while (state.utilization < 1.0) {
       if (hi >= upper) {
-        return new LimitLoadResult(design, upper, state.report, true, solves);
+        // 到达搜索上界还没坏：真实极限未知，标记出来（调用方提示用户调高上限）
+        return new LimitLoadResult(design, upper, state.report, true, solves, true);
       }
       hi = Math.min(upper, hi * 2.0);
       state = utilizationAtLive(design, hi);

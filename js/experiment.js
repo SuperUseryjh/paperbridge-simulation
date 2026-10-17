@@ -32,13 +32,14 @@
 
   /** 一次完整加载实验的结果 */
   class LoadTestResult {
-    constructor(design, limitLoad, limitReport, selfWeightSafe, solves) {
+    constructor(design, limitLoad, limitReport, selfWeightSafe, solves, capped) {
       this.design = design;
       this.steps = [];
       this.limit_load = limitLoad;
       this.limit_report = limitReport;
       this.self_weight_safe = selfWeightSafe;
       this.solves = solves || 0;
+      this.capped = !!capped;      // 极限搜索到达上界（真实极限更高）
     }
 
     failureMode() {
@@ -70,8 +71,9 @@
         return ['仅自重就已使结构超过挠度/强度限值：这张桥撑不住自己。'];
       }
       const lines = [
-        '极限活载 ≈ ' + this.limit_load.toFixed(3) + ' N（砝码 ~' +
-        (this.limit_load / G * 1e3).toFixed(1) + ' g）',
+        (this.capped ? '达到搜索上限 ' : '极限活载 ≈ ') + this.limit_load.toFixed(3) +
+        ' N（砝码 ~' + (this.limit_load / G * 1e3).toFixed(1) + ' g）' +
+        (this.capped ? '，仍未失效：真实极限更高' : ''),
         '控制失效模式：' + this.failureMode(),
         '初始刚度 ≈ ' + this.stiffness().toFixed(2) + ' N/mm',
       ];
@@ -109,13 +111,13 @@
   }
 
   /** 逐级加载实验：先二分求极限，再在 0~极限 间等分 steps 级逐一分析 */
-  function runLoadTest(design, steps, limit) {
+  function runLoadTest(design, steps, limit, upper) {
     steps = steps === undefined ? 20 : steps;
     if (steps < 2) throw new Error('加载级数至少为 2');
 
-    const lim = limit || Fail.findLimitLoad(design);
+    const lim = limit || Fail.findLimitLoad(design, upper);
     const result = new LoadTestResult(design, lim.limit_load, lim.report,
-      lim.self_weight_safe, lim.solves);
+      lim.self_weight_safe, lim.solves, lim.capped);
     if (!lim.self_weight_safe) return result;
 
     for (let i = 0; i <= steps; i++) {

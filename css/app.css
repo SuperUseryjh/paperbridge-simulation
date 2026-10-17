@@ -236,6 +236,39 @@ select {
 select:hover:not(:disabled) { border-color: #a9bcc4; }
 select:disabled { color: var(--muted); background-color: var(--panel-soft); }
 
+input[type="number"] {
+  flex: 1;
+  min-width: 0;
+  height: var(--row-h);
+  padding: 0 8px;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: textfield;
+  transition: border-color .12s, box-shadow .12s;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+input[type="number"]:hover { border-color: #a9bcc4; }
+input[type="number"]:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(0, 121, 107, .14);
+}
+
+.row .unit {
+  flex: 0 0 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 input[type="checkbox"] {
   width: 14px; height: 14px;
   margin: 0;
@@ -717,6 +750,7 @@ button.primary:hover:not(:disabled) { background: var(--primary-dark); border-co
 
 .status.error { color: var(--fail); border-color: #ef9a9a; background: #fff5f5; }
 .status.ok { color: var(--safe); border-color: #b7ddb9; }
+.status.warn { color: var(--warn); border-color: #e6cf94; background: #fffdf3; }
 
 /* ---------- 大屏 ---------- */
 @media (min-width: 1400px) {

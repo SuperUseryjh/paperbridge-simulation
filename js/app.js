@@ -31,6 +31,7 @@
   ];
 
   // ---- 状态 ----
+  const LIMIT_UPPER_DEFAULT = 200;      // 极限搜索默认上界 N
   let view, view3d, curveChart, momentChart;
   let viewMode = '2d';
   let editor = null;
@@ -213,6 +214,16 @@
     });
     $('memberSection').addEventListener('change', editorOptionChanged);
     $('memberKind').addEventListener('change', editorOptionChanged);
+    // 极限搜索上限：改了就丢掉旧的极限结果并重绘（参数没变，不用重算力学）
+    $('limitUpper').addEventListener('change', function () {
+      $('limitUpper').value = limitUpperN();       // 空值/乱填就退回默认
+      limitResult = null;
+      testResult = null;
+      recompute();
+      setKpi(KPI_ROWS[2], 'idle', '—', '上限已改为 ' + limitUpperN() + ' N，请重新求极限');
+      setStatus('极限搜索上限已设为 ' + limitUpperN() + ' N（约 ' +
+        (limitUpperN() / G).toFixed(1) + ' kg 砝码）');
+    });
     $('demo').addEventListener('change', function () {
       loadDemo($('demo').value);
     });
@@ -424,6 +435,12 @@
   function isCustom() { return $('structure').value === 'custom'; }
 
   function structureKey() { return $('structure').value; }
+
+  /** 极限承载力搜索上界（N）：用户可在「加载」页调整，默认 200 N */
+  function limitUpperN() {
+    const v = parseFloat($('limitUpper').value);
+    return (isFinite(v) && v >= 1) ? Math.min(v, 1e7) : LIMIT_UPPER_DEFAULT;
+  }
 
   function readDesign(liveLoad) {
     const key = structureKey();
@@ -666,9 +683,12 @@
 
     const lim = limitResult || testResult;
     if (lim && lim.limit_load > 0) {
-      setKpi(KPI_ROWS[2], 'idle', lim.limit_load.toFixed(3) + ' N',
-        '砝码 ' + (lim.limit_load / G * 1e3).toFixed(0) + ' g（' +
-        (limitResult ? '二分求解' : '实验外推') + '）');
+      setKpi(KPI_ROWS[2], lim.capped ? 'warn' : 'idle',
+        (lim.capped ? '≥ ' : '') + lim.limit_load.toFixed(3) + ' N',
+        lim.capped
+          ? '已达搜索上限（可调高重算）'
+          : '砝码 ' + (lim.limit_load / G * 1e3).toFixed(0) + ' g（' +
+            (limitResult ? '二分求解' : '实验外推') + '）');
     } else {
       setKpi(KPI_ROWS[2], 'idle', '—', '点「求极限承载力」');
     }
@@ -813,7 +833,7 @@
     setStatus('正在计算极限承载力…');
     let lim;
     try {
-      lim = limitResult || Fail.findLimitLoad(design.copyWith({ live_load: 0.0 }));
+      lim = limitResult || Fail.findLimitLoad(design.copyWith({ live_load: 0.0 }), limitUpperN());
     } catch (err) { setStatus('计算失败：' + err.message, 'error'); return; }
     limitResult = lim;
     if (!lim.self_weight_safe) {
@@ -857,7 +877,12 @@
     if (collapsed) { stopAnimation(); shake(8, 0); return; }
     if (animFrame > ANIM_FRAMES) {
       stopAnimation();
-      setStatus('加载完成：还有余量，可以试试更弱的设计或更多砝码。', 'ok');
+      if (limitResult && limitResult.capped) {
+        setStatus('加载到搜索上限 ' + animTarget.toFixed(0) + ' N 仍未失效：' +
+          '真实极限更高，可把「加载 → 搜索上限」调大后重播。', 'warn');
+      } else {
+        setStatus('加载完成：还有余量，可以试试更弱的设计或更多砝码。', 'ok');
+      }
       return;
     }
     animTimer = setTimeout(animTick, parseFloat($('speed').value));
@@ -887,14 +912,19 @@
     setStatus('正在做逐级加载实验…');
     let result;
     try {
-      result = Exp.runLoadTest(design.copyWith({ live_load: 0.0 }), 15);
+      result = Exp.runLoadTest(design.copyWith({ live_load: 0.0 }), 15, null, limitUpperN());
     } catch (err) { setStatus('实验失败：' + err.message, 'error'); return; }
     testResult = result;
     const a = Fail.analyze(design);
     renderReadout(a);
     renderCharts(a);
-    setStatus('实验完成：极限活载 ' + result.limit_load.toFixed(3) + ' N（' +
-      (result.limit_load / G * 1e3).toFixed(0) + ' g），失效模式 ' + result.failureMode(), 'ok');
+    if (result.capped) {
+      setStatus('实验只做到搜索上限 ' + result.limit_load.toFixed(0) +
+        ' N，桥仍未失效：真实极限更高，请把「加载 → 搜索上限」调大后重做。', 'warn');
+    } else {
+      setStatus('实验完成：极限活载 ' + result.limit_load.toFixed(3) + ' N（' +
+        (result.limit_load / G * 1e3).toFixed(0) + ' g），失效模式 ' + result.failureMode(), 'ok');
+    }
   }
 
   function showLimit() {
@@ -904,7 +934,7 @@
     }
     setStatus('正在二分搜索极限承载力…');
     let lim;
-    try { lim = Fail.findLimitLoad(design.copyWith({ live_load: 0.0 })); } catch (err) {
+    try { lim = Fail.findLimitLoad(design.copyWith({ live_load: 0.0 }), limitUpperN()); } catch (err) {
       setStatus('搜索失败：' + err.message, 'error'); return;
     }
     limitResult = lim;
@@ -913,11 +943,17 @@
     showAnalysis(a, {
       amplify: $('amplify').checked,
       collapsed: lim.report.max_utilization >= 1.0,
-      banner: '极限状态：' + mode,
+      banner: lim.capped
+        ? '× 到 ' + lim.limit_load.toFixed(0) + ' N 仍未失效（搜索上限）'
+        : '极限状态：' + mode,
     });
     renderReadout(a);
     renderCharts(a);
-    if (lim.self_weight_safe) {
+    if (lim.capped) {
+      setStatus('搜索到上限 ' + lim.limit_load.toFixed(0) + ' N 时仍未失效，最高利用率仅 ' +
+        (lim.report.max_utilization * 100).toFixed(0) + '%：真实极限更高，' +
+        '请把「加载 → 搜索上限」调大后重算。', 'warn');
+    } else if (lim.self_weight_safe) {
       setStatus('极限活载 ' + lim.limit_load.toFixed(3) + ' N（砝码 ' +
         (lim.limit_load / G * 1e3).toFixed(0) + ' g），控制失效模式 ' + mode +
         '（共求解 ' + lim.solves + ' 次）', 'ok');
@@ -951,6 +987,7 @@
     $('gridSnap').value = '0.01';
     $('memberSection').value = 'folded';
     $('memberKind').value = 'frame';
+    $('limitUpper').value = LIMIT_UPPER_DEFAULT;
     updateSliderLabels();
     applyControlStates();
     view.resetView();
